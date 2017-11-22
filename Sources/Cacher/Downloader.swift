@@ -9,6 +9,7 @@
 import Foundation
 import Dispatch
 
+#if os(OSX) || os(iOS) || os(tvOS) || os(watchOS)
 internal class Downloader {
     
     internal typealias DownloaderHandler = ((Data?, Error?) -> Void)
@@ -67,4 +68,17 @@ internal class Downloader {
     }
     
 }
+
+#elseif  os(Linux) || CYGWIN
+
+internal class Downloader {
+    internal typealias DownloaderHandler = ((Data?, Error?) -> Void)
+    
+    init() {
+    }
+    
+    internal func get(with url: URL, completionHandler: @escaping DownloaderHandler) {}
+}
+    
+#endif
 

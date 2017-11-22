@@ -52,7 +52,7 @@ public enum CachedItemType {
 }
 
 public protocol Cacheable {
-    init?(data: Data)
+    static func item(from cacheData: Data) -> Cacheable?
     func getDataRepresentation() -> Data?
 }
 
@@ -74,6 +74,12 @@ open class Cache<Key: CacheableKey, Item: Cacheable> {
     
     fileprivate let cache: NSCache<Key.ObjectType, Element>
     public let diskCache: DiskCache<Key, Item>
+    
+    public var maxCost: Int = 0 {
+        willSet {
+            self.cache.totalCostLimit = newValue
+        }
+    }
     
     /// This is the default cache type for all items added to the cache
     /// - NOTE: Setting this to `default` is undefined
@@ -101,17 +107,17 @@ open class Cache<Key: CacheableKey, Item: Cacheable> {
     ///   - type: The cache it is saved to, the default is to use cacheType on this class
     /// - Returns: The added element. This is discardable
     /// - Throws: An file error if the type is disk or diskOnly
-    @discardableResult public func add(item: Item, for key: Key, type: CachedItemType = .default) throws -> Element {
-        return try add(item: item, for: key, type: type, isSaved: false)
+    @discardableResult public func add(item: Item, for key: Key, type: CachedItemType = .default, cost: Int = 0) throws -> Element {
+        return try add(item: item, for: key, type: type, isSaved: false, cost: cost)
     }
     
-    private func add(item: Item, for key: Key, type: CachedItemType = .default, isSaved: Bool) throws -> Element {
+    private func add(item: Item, for key: Key, type: CachedItemType = .default, isSaved: Bool, cost: Int) throws -> Element {
         let newItem = Element(item: item, type: type)
         
         let itemType = self.itemType(from: type)
         
         if itemType.shouldMemoryCache {
-            cache.setObject(newItem, forKey: key.toObjectType())
+            cache.setObject(newItem, forKey: key.toObjectType(), cost: cost)
         }
         
         if itemType.shouldSave && !isSaved {
@@ -127,7 +133,7 @@ open class Cache<Key: CacheableKey, Item: Cacheable> {
     ///   - key: The key for the requested item
     ///   - type: The type of cache the item is loaded from. If memory then it will only check memory. The default is to use cacheType on this class
     /// - Returns: The item found based of the key or returns nil if not found
-    public func item(for key: Key, type: CachedItemType = .default) -> Element? {
+    public func item(for key: Key, type: CachedItemType = .default, cost: Int = 0) -> Element? {
         let cacheType = itemType(from: type)
         
         if let item = cache.object(forKey: key.toObjectType()) {
@@ -142,7 +148,7 @@ open class Cache<Key: CacheableKey, Item: Cacheable> {
         
         if cacheType != .diskOnly {
             //We got this far so the image isnt in memory cache so lets add it.
-            cache.setObject(newItem, forKey: key.toObjectType())
+            cache.setObject(newItem, forKey: key.toObjectType(), cost: cost)
         }
         
         return newItem
@@ -157,7 +163,7 @@ open class Cache<Key: CacheableKey, Item: Cacheable> {
     ///   - options: Options on for the cache and how it should handle items
     ///   - completion: A handler to for the item (Item, DidDownload, Error).
     /// - NOTE: the completion handler may not return on the main queue
-    public func load(from url: URL, key: Key, cacheType: CachedItemType = .default, options: CacheOptions = [], completion: @escaping ((Element?, Bool, Error?) -> Void)) {
+    public func load(from url: URL, key: Key, cacheType: CachedItemType = .default, cost: Int = 0, options: CacheOptions = [], completion: @escaping ((Element?, Bool, Error?) -> Void)) {
         if let cachedItem = item(for: key, type: cacheType), !options.contains(.refreshCached) {
             completion(cachedItem, false, nil)
             return
@@ -171,7 +177,7 @@ open class Cache<Key: CacheableKey, Item: Cacheable> {
                 return
             }
             
-            guard let item = Item(data: data) else {
+            guard let item = Item.item(from: data) as? Item else {
                 //This is to check that item downloaded is the correct item type that we expect
                 completion(nil, false, DownloadError.wrongDataType)
                 return
@@ -181,7 +187,7 @@ open class Cache<Key: CacheableKey, Item: Cacheable> {
             
             do {
                 //If the item cacheType is we'll handling saving is this method so we dont have to keep passing the data around
-                cachedItem = try self?.add(item: item, for: key, type: cacheType, isSaved: true)
+                cachedItem = try self?.add(item: item, for: key, type: cacheType, isSaved: true, cost: cost)
             } catch {
                 completion(nil, false, error)
                 return

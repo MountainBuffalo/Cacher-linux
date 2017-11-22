@@ -76,7 +76,7 @@ public class DiskCache<Key: CacheableKey, Item: Cacheable> {
             return nil
         }
 
-        return Item(data: data)
+        return Item.item(from: data) as? Item
     }
 
     internal func delete(for key: Key) throws {
